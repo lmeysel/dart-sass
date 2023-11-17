@@ -5,6 +5,7 @@
 import 'package:js/js.dart';
 
 import 'array.dart';
+import 'variable_trace.dart';
 
 @JS()
 @anonymous
@@ -12,7 +13,11 @@ class NodeCompileResult {
   external String get css;
   external Object? get sourceMap;
   external JSArray get loadedUrls;
+  external JSVariableTrace get variablesTrace;
 
   external factory NodeCompileResult(
-      {required String css, Object? sourceMap, required JSArray loadedUrls});
+      {required String css,
+      Object? sourceMap,
+      required JSArray loadedUrls,
+      required JSVariableTrace variablesTrace});
 }

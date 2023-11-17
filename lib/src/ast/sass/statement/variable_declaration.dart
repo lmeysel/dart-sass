@@ -40,6 +40,12 @@ final class VariableDeclaration implements Statement, SassDeclaration {
   /// Guarded assignments only happen if the variable is undefined or `null`.
   final bool isGuarded;
 
+  /// Whether this is a lazy assignment
+  ///
+  /// Lazy assignments are keept in memory but will only be evaluated on first usage (which means, dependents might have changed meanwhile)
+  /// This is a customization and no official sass standard.
+  final bool isLazy;
+
   /// Whether this is a global assignment.
   ///
   /// Global assignments always affect only the global scope.
@@ -64,9 +70,14 @@ final class VariableDeclaration implements Statement, SassDeclaration {
       namespace == null ? null : span.initialIdentifier();
 
   VariableDeclaration(this.name, this.expression, this.span,
-      {this.namespace, bool guarded = false, bool global = false, this.comment})
+      {this.namespace,
+      bool guarded = false,
+      bool global = false,
+      bool lazy = false,
+      this.comment})
       : isGuarded = guarded,
-        isGlobal = global {
+        isGlobal = global,
+        isLazy = lazy {
     if (namespace != null && global) {
       throw ArgumentError(
           "Other modules' members can't be defined with !global.");

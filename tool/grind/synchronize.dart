@@ -25,7 +25,8 @@ final sources = const {
   'lib/src/visitor/async_evaluate.dart': 'lib/src/visitor/evaluate.dart',
   'lib/src/async_compile.dart': 'lib/src/compile.dart',
   'lib/src/async_environment.dart': 'lib/src/environment.dart',
-  'lib/src/async_import_cache.dart': 'lib/src/import_cache.dart'
+  'lib/src/async_import_cache.dart': 'lib/src/import_cache.dart',
+  'lib/src/async_variable_tracer.dart': 'lib/src/variable_tracer.dart'
 };
 
 /// Classes that are defined in the async version of a file and used as-is in
@@ -141,6 +142,16 @@ class _Visitor extends RecursiveAstVisitor<void> {
   void visitBlockFunctionBody(BlockFunctionBody node) {
     _skip(node.keyword);
     node.visitChildren(this);
+  }
+
+  void visitMixinDeclaration(MixinDeclaration node) {
+    for (var child in node.sortedCommentAndAnnotations) {
+      child.accept(this);
+    }
+    _rename(node.name);
+    node.typeParameters?.accept(this);
+    node.implementsClause?.accept(this);
+    node.members.accept(this);
   }
 
   void visitClassDeclaration(ClassDeclaration node) {

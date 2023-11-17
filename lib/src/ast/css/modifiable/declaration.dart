@@ -4,6 +4,7 @@
 
 import 'package:source_span/source_span.dart';
 
+import '../../../trace_variable.dart';
 import '../../../value.dart';
 import '../../../visitor/interface/modifiable_css.dart';
 import '../declaration.dart';
@@ -18,12 +19,15 @@ final class ModifiableCssDeclaration extends ModifiableCssNode
   final bool parsedAsCustomProperty;
   final FileSpan valueSpanForMap;
   final FileSpan span;
+  final Set<TraceVariable>? variables;
 
   bool get isCustomProperty => name.value.startsWith('--');
 
   /// Returns a new CSS declaration with the given properties.
   ModifiableCssDeclaration(this.name, this.value, this.span,
-      {required this.parsedAsCustomProperty, FileSpan? valueSpanForMap})
+      {required this.parsedAsCustomProperty,
+      FileSpan? valueSpanForMap,
+      this.variables})
       : valueSpanForMap = valueSpanForMap ?? value.span {
     if (parsedAsCustomProperty) {
       if (!isCustomProperty) {

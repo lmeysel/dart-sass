@@ -5,6 +5,7 @@
 import 'dart:convert';
 
 import 'package:path/path.dart' as p;
+import 'package:sass/src/variable_trace_graph.dart';
 import 'package:source_maps/source_maps.dart';
 import 'package:stack_trace/stack_trace.dart';
 
@@ -161,6 +162,7 @@ Future<void> _compileStylesheetWithoutErrorHandling(ExecutableOptions options,
 
   var css = result.css;
   css += _writeSourceMap(options, result.sourceMap, destination);
+  css += _writeVariableTrace(options, result.variableTraceGraph, destination);
   if (destination == null) {
     if (css.isNotEmpty) print(css);
   } else {
@@ -229,6 +231,22 @@ String _writeSourceMap(
 
   return (options.style == OutputStyle.compressed ? '' : '\n\n') +
       '/*# sourceMappingURL=$escapedUrl */';
+}
+
+String _writeVariableTrace(
+    ExecutableOptions options, VariableTraceGraph graph, String? destination) {
+  if (options.emitVarTrace) {
+    var json = jsonEncode(graph.toJson());
+    if (options.embedVarTrace) {
+      return '\n/*# varTraceGraph=$json */';
+    } else if (destination != null) {
+      var varTracePath = destination + '.vartrace';
+
+      ensureDir(p.dirname(varTracePath));
+      writeFile(varTracePath, json);
+    }
+  }
+  return '';
 }
 
 /// Delete [path] if it exists and do nothing otherwise.

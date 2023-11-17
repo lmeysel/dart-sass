@@ -8,6 +8,7 @@ import 'ast/css.dart';
 import 'ast/node.dart';
 import 'callable.dart';
 import 'extend/extension_store.dart';
+import 'trace_variable.dart';
 import 'value.dart';
 
 /// The interface for a Sass module.
@@ -17,6 +18,8 @@ abstract interface class Module<T extends AsyncCallable> {
   /// This may be `null` if the module was loaded from a string without a URL
   /// provided.
   Uri? get url;
+
+  Set<TraceVariable> get traceVariables => {};
 
   /// Modules that this module uses.
   List<Module<T>> get upstream;

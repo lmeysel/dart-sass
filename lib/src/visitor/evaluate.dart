@@ -5,7 +5,7 @@
 // DO NOT EDIT. This file was generated from async_evaluate.dart.
 // See tool/grind/synchronize.dart for details.
 //
-// Checksum: 58ef9912c6a9d9cfe9c3f5d991f625ab1a627e7a
+// Checksum: bce0921c51031afc2500a6db363013a76322ebb6
 //
 // ignore_for_file: unused_import
 
@@ -48,6 +48,8 @@ import '../module.dart';
 import '../module/built_in.dart';
 import '../parse/keyframe_selector.dart';
 import '../syntax.dart';
+import '../trace_argument.dart';
+import '../trace_variable.dart';
 import '../utils.dart';
 import '../util/character.dart';
 import '../util/map.dart';
@@ -600,7 +602,11 @@ final class _EvaluateVisitor
         }
 
         var module = _addExceptionTrace(() => _execute(importer, node));
-        return (stylesheet: _combineCss(module), loadedUrls: _loadedUrls);
+        return (
+          stylesheet: _combineCss(module),
+          loadedUrls: _loadedUrls,
+          variables: module.traceVariables
+        );
       });
     } on SassException catch (error, stackTrace) {
       throwWithTrace(error.withLoadedUrls(_loadedUrls), error, stackTrace);
@@ -1194,13 +1200,15 @@ final class _EvaluateVisitor
     }
 
     if (node.value case var expression?) {
-      var value = expression.accept(this);
+      var (value, deps) =
+          _environment.traceReadVariables(() => expression.accept(this));
       // If the value is an empty list, preserve it, because converting it to CSS
       // will throw an error that we want the user to see.
       if (!value.isBlank || _isEmptyList(value)) {
         _parent.addChild(ModifiableCssDeclaration(
             name, CssValue(value, expression.span), node.span,
             parsedAsCustomProperty: node.isCustomProperty,
+            variables: deps,
             valueSpanForMap:
                 _sourceMap ? node.value.andThen(_expressionNode)?.span : null));
       } else if (name.value.startsWith('--')) {
@@ -2199,11 +2207,27 @@ final class _EvaluateVisitor
           Deprecation.newGlobal);
     }
 
-    var value = _withoutSlash(node.expression.accept(this), node.expression);
+    if (node.isLazy) {
+      _addExceptionSpan(node, () {
+        _environment.setVariable(
+            node.name, sassNull, _expressionNode(node.expression),
+            global: node.isGlobal, deferrer: (variable) {
+          var (value, dependencies) = _environment.traceReadVariables(() =>
+              _withoutSlash(node.expression.accept(this), node.expression));
+          variable.addDependencies(dependencies);
+          return value;
+        });
+      });
+      return null;
+    }
+    var (value, dependencies) = _environment.traceReadVariables(
+        () => _withoutSlash(node.expression.accept(this), node.expression));
     _addExceptionSpan(node, () {
       _environment.setVariable(
           node.name, value, _expressionNode(node.expression),
-          namespace: node.namespace, global: node.isGlobal);
+          namespace: node.namespace,
+          global: node.isGlobal,
+          dependencies: dependencies);
     });
     return null;
   }
@@ -2806,32 +2830,41 @@ final class _EvaluateVisitor
               math.min(evaluated.positional.length, declaredArguments.length);
           for (var i = 0; i < minLength; i++) {
             _environment.setLocalVariable(declaredArguments[i].name,
-                evaluated.positional[i], evaluated.positionalNodes[i]);
+                evaluated.positional[i].value, evaluated.positionalNodes[i],
+                dependencies: evaluated.positional[i].dependencies);
           }
 
           for (var i = evaluated.positional.length;
               i < declaredArguments.length;
               i++) {
             var argument = declaredArguments[i];
-            var value = evaluated.named.remove(argument.name) ??
+            var trace = evaluated.named.remove(argument.name);
+            var value = trace?.value ??
                 _withoutSlash(argument.defaultValue!.accept<Value>(this),
                     _expressionNode(argument.defaultValue!));
             _environment.setLocalVariable(
                 argument.name,
                 value,
                 evaluated.namedNodes[argument.name] ??
-                    _expressionNode(argument.defaultValue!));
+                    _expressionNode(argument.defaultValue!),
+                dependencies: trace?.dependencies);
           }
 
           SassArgumentList? argumentList;
           var restArgument = callable.declaration.arguments.restArgument;
           if (restArgument != null) {
+            var restDependencies = <TraceVariable>{};
             var rest = evaluated.positional.length > declaredArguments.length
-                ? evaluated.positional.sublist(declaredArguments.length)
+                ? evaluated.positional
+                    .sublist(declaredArguments.length)
+                    .map((arg) {
+                    restDependencies.addAll(arg.dependencies);
+                    return arg.value;
+                  })
                 : const <Value>[];
             argumentList = SassArgumentList(
                 rest,
-                evaluated.named,
+                evaluated.named.map((key, arg) => MapEntry(key, arg.value)),
                 evaluated.separator == ListSeparator.undecided
                     ? ListSeparator.comma
                     : evaluated.separator);
@@ -2940,32 +2973,41 @@ final class _EvaluateVisitor
         i++) {
       var argument = declaredArguments[i];
       evaluated.positional.add(evaluated.named.remove(argument.name) ??
-          _withoutSlash(
-              argument.defaultValue!.accept(this), argument.defaultValue!));
+          _environment.traceArgument(() => _withoutSlash(
+              argument.defaultValue!.accept(this), argument.defaultValue!)));
     }
 
     SassArgumentList? argumentList;
     if (overload.restArgument != null) {
       var rest = const <Value>[];
+      var restDeps = <TraceVariable>{};
       if (evaluated.positional.length > declaredArguments.length) {
-        rest = evaluated.positional.sublist(declaredArguments.length);
+        rest =
+            evaluated.positional.sublist(declaredArguments.length).map((arg) {
+          restDeps.addAll(arg.dependencies);
+          return arg.value;
+        }).toList();
         evaluated.positional
             .removeRange(declaredArguments.length, evaluated.positional.length);
       }
 
-      argumentList = SassArgumentList(
-          rest,
-          evaluated.named,
+      argumentList = SassArgumentList(rest, evaluated.named.map((key, value) {
+        restDeps.addAll(value.dependencies);
+        return MapEntry(key, value.value);
+      }),
           evaluated.separator == ListSeparator.undecided
               ? ListSeparator.comma
               : evaluated.separator);
-      evaluated.positional.add(argumentList);
+      evaluated.positional.add(TraceArgument(argumentList, restDeps));
     }
 
     Value result;
     try {
-      result =
-          _addExceptionSpan(nodeWithSpan, () => callback(evaluated.positional));
+      result = _addExceptionSpan(
+          nodeWithSpan,
+          () => callback(evaluated.positional
+              .map((arg) => _environment.touchArgument(arg).value)
+              .toList()));
     } on SassException {
       rethrow;
     } catch (error, stackTrace) {
@@ -3000,19 +3042,21 @@ final class _EvaluateVisitor
     // warnings for /-as-division, but once those warnings are gone we should go
     // back to tracking conditionally.
 
-    var positional = <Value>[];
+    var positional = <TraceArgument>[];
     var positionalNodes = <AstNode>[];
     for (var expression in arguments.positional) {
       var nodeForSpan = _expressionNode(expression);
-      positional.add(_withoutSlash(expression.accept(this), nodeForSpan));
+      positional.add(_environment.traceArgument(
+          () => _withoutSlash(expression.accept(this), nodeForSpan)));
       positionalNodes.add(nodeForSpan);
     }
 
-    var named = <String, Value>{};
+    var named = <String, TraceArgument>{};
     var namedNodes = <String, AstNode>{};
     for (var (name, value) in arguments.named.pairs) {
       var nodeForSpan = _expressionNode(value);
-      named[name] = _withoutSlash(value.accept(this), nodeForSpan);
+      named[name] = _environment
+          .traceArgument(() => _withoutSlash(value.accept(this), nodeForSpan));
       namedNodes[name] = nodeForSpan;
     }
 
@@ -3027,29 +3071,30 @@ final class _EvaluateVisitor
       );
     }
 
-    var rest = restArgs.accept(this);
+    var restTrace = _environment.traceArgument(() => restArgs.accept(this));
+    var rest = restTrace.value;
     var restNodeForSpan = _expressionNode(restArgs);
     var separator = ListSeparator.undecided;
     if (rest is SassMap) {
-      _addRestMap(named, rest, restArgs, (value) => value);
+      _addRestMap(named, rest, restArgs, (value) => TraceArgument(value));
       namedNodes.addAll({
         for (var key in rest.contents.keys)
           (key as SassString).text: restNodeForSpan
       });
     } else if (rest is SassList) {
-      positional.addAll(
-          rest.asList.map((value) => _withoutSlash(value, restNodeForSpan)));
+      positional.addAll(rest.asList.map(
+          (value) => TraceArgument(_withoutSlash(value, restNodeForSpan))));
       positionalNodes.addAll(List.filled(rest.lengthAsList, restNodeForSpan));
       separator = rest.separator;
 
       if (rest is SassArgumentList) {
         rest.keywords.forEach((key, value) {
-          named[key] = _withoutSlash(value, restNodeForSpan);
+          named[key] = TraceArgument(_withoutSlash(value, restNodeForSpan));
           namedNodes[key] = restNodeForSpan;
         });
       }
     } else {
-      positional.add(_withoutSlash(rest, restNodeForSpan));
+      positional.add(TraceArgument(_withoutSlash(rest, restNodeForSpan)));
       positionalNodes.add(restNodeForSpan);
     }
 
@@ -3548,15 +3593,16 @@ final class _EvaluateVisitor
     // now to produce better warnings for /-as-division, but once those warnings
     // are gone we should go back to short-circuiting.
 
-    if (expression is VariableExpression) {
-      return _addExceptionSpan(
-              expression,
-              () => _environment.getVariableNode(expression.name,
-                  namespace: expression.namespace)) ??
-          expression;
-    } else {
-      return expression;
-    }
+    return expression;
+    // if (expression is VariableExpression) {
+    //   return _addExceptionSpan(
+    //           expression,
+    //           () => _environment.getVariableNode(expression.name,
+    //               namespace: expression.namespace)) ??
+    //       expression;
+    // } else {
+    //   return expression;
+    // }
   }
 
   /// Adds [node] as a child of the current parent, then runs [callback] with
@@ -3888,7 +3934,7 @@ final class _EvaluationContext implements EvaluationContext {
 /// The result of evaluating arguments to a function or mixin.
 typedef _ArgumentResults = ({
   /// Arguments passed by position.
-  List<Value> positional,
+  List<TraceArgument> positional,
 
   /// The [AstNode]s that hold the spans for each [positional] argument.
   ///
@@ -3898,7 +3944,7 @@ typedef _ArgumentResults = ({
   List<AstNode> positionalNodes,
 
   /// Arguments passed by name.
-  Map<String, Value> named,
+  Map<String, TraceArgument> named,
 
   /// The [AstNode]s that hold the spans for each [named] argument.
   ///

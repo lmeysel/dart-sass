@@ -10,6 +10,7 @@ import '../callable.dart';
 import '../exception.dart';
 import '../extend/extension_store.dart';
 import '../module.dart';
+import '../trace_variable.dart';
 import '../value.dart';
 
 /// A module provided by Sass, available under the special `sass:` URL space.
@@ -19,6 +20,7 @@ final class BuiltInModule<T extends AsyncCallable> implements Module<T> {
   final Map<String, T> mixins;
   final Map<String, Value> variables;
 
+  Set<TraceVariable> get traceVariables => {};
   List<Module<T>> get upstream => const [];
   Map<String, AstNode> get variableNodes => const {};
   ExtensionStore get extensionStore => ExtensionStore.empty;

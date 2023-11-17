@@ -77,6 +77,13 @@ final class ExecutableOptions {
           help: 'Embed source map contents in CSS.', defaultsTo: false);
 
     parser
+      ..addSeparator(_separator("Variable trace"))
+      ..addFlag('var-trace',
+          help: 'Whether to generate variable trace graph', defaultsTo: false)
+      ..addFlag('embed-var-trace',
+          help: 'Embed variable trace contents in CSS.', defaultsTo: false);
+
+    parser
       ..addSeparator(_separator('Warnings'))
       ..addFlag('quiet', abbr: 'q', help: "Don't print warnings.")
       ..addFlag('quiet-deps',
@@ -170,7 +177,8 @@ final class ExecutableOptions {
 
     var invalidOptions = [
       'stdin', 'indented', 'style', 'source-map', 'source-map-urls', //
-      'embed-sources', 'embed-source-map', 'update', 'watch'
+      'embed-sources', 'embed-source-map', 'var-trace',
+      'embed-var-trace', 'update', 'watch'
     ];
     if (invalidOptions.firstWhereOrNull(_options.wasParsed) case var option?) {
       throw UsageException("--$option isn't allowed with --interactive.");
@@ -473,6 +481,16 @@ final class ExecutableOptions {
 
   /// Whether to embed the source files in the generated source map.
   bool get embedSources => _options['embed-sources'] as bool;
+
+  bool get emitVarTrace {
+    var emit = _options['var-trace'] as bool;
+    if (!emit && embedVarTrace) {
+      return true;
+    }
+    return emit;
+  }
+
+  bool get embedVarTrace => _options['embed-var-trace'] as bool;
 
   /// Parses options from [args].
   ///

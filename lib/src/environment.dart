@@ -5,7 +5,7 @@
 // DO NOT EDIT. This file was generated from async_environment.dart.
 // See tool/grind/synchronize.dart for details.
 //
-// Checksum: f7172be68e0a19c4dc2d2ad04fc32a843a98a6bd
+// Checksum: fe1b7099893e2885e037c5973ab77a830c5d931a
 //
 // ignore_for_file: unused_import
 
@@ -16,6 +16,7 @@ import 'package:source_span/source_span.dart';
 import 'ast/css.dart';
 import 'ast/node.dart';
 import 'ast/sass.dart';
+import 'variable_tracer.dart';
 import 'callable.dart';
 import 'configuration.dart';
 import 'configured_value.dart';
@@ -24,6 +25,7 @@ import 'extend/extension_store.dart';
 import 'module.dart';
 import 'module/forwarded_view.dart';
 import 'module/shadowed_view.dart';
+import 'trace_variable.dart';
 import 'util/map.dart';
 import 'util/merged_map_view.dart';
 import 'util/nullable.dart';
@@ -31,6 +33,33 @@ import 'util/public_member_map_view.dart';
 import 'utils.dart';
 import 'value.dart';
 import 'visitor/clone_css.dart';
+
+final class TraceVariableImpl extends TraceVariable {
+  Value? _value;
+  final Value Function(TraceVariable variable)? _deferrer;
+
+  TraceVariableImpl(super.name, this._value,
+      {super.dependencies,
+      super.nodeWithSpan,
+      super.isRoot = false,
+      super.isArgument = false,
+      Value Function(TraceVariable variable)? deferrer})
+      : _deferrer = deferrer;
+
+  void evaluate() {
+    if (_deferrer == null) {
+      throw Exception("Cannot lazily evaluate non-lazy variable");
+    }
+
+    _value = _deferrer!(this);
+  }
+
+  @override
+  bool get isLazy => _deferrer != null;
+
+  @override
+  Value get value => _value!;
+}
 
 // TODO(nweiz): This used to avoid tracking source spans for variables if source
 // map generation was disabled. We always have to track them now to produce
@@ -41,7 +70,7 @@ import 'visitor/clone_css.dart';
 ///
 /// This tracks lexically-scoped information, such as variables, functions, and
 /// mixins.
-final class Environment {
+final class Environment with VariableTracerMixin {
   /// The modules used in the current scope, indexed by their namespaces.
   Map<String, Module<Callable>> get modules => UnmodifiableMapView(_modules);
   final Map<String, Module<Callable>> _modules;
@@ -83,7 +112,9 @@ final class Environment {
   ///
   /// The first element is the global scope, and each successive element is
   /// deeper in the tree.
-  final List<Map<String, Value>> _variables;
+  final List<Map<String, TraceVariableImpl>> _variables;
+
+  Set<TraceVariableImpl> get traceVariables => _variables.last.values.toSet();
 
   /// The nodes where each variable in [_variables] was defined.
   ///
@@ -409,34 +440,55 @@ final class Environment {
     }
   }
 
+  Value? _touchAndUnwrapTraceVariable(TraceVariableImpl? variable) {
+    if (variable != null) {
+      touchVariable(variable);
+      if (variable.isLazy) {
+        variable.evaluate();
+      }
+      return variable.value;
+    }
+    return null;
+  }
+
+  Value? getVariable(String name, {String? namespace}) {
+    var variable = _getVariable(name, namespace: namespace);
+    return _touchAndUnwrapTraceVariable(variable);
+  }
+
   /// Returns the value of the variable named [name], optionally with the given
   /// [namespace], or `null` if no such variable is declared.
   ///
   /// Throws a [SassScriptException] if there is no module named [namespace], or
   /// if multiple global modules expose variables named [name].
-  Value? getVariable(String name, {String? namespace}) {
-    if (namespace != null) return _getModule(namespace).variables[name];
+  TraceVariableImpl? _getVariable(String name, {String? namespace}) {
+    if (namespace != null) {
+      var variable = _getModule(namespace).variables[name];
+      if (variable == null) return null;
+      return TraceVariableImpl(name, variable);
+    }
 
     if (_lastVariableName == name) {
       return _variables[_lastVariableIndex!][name] ??
-          _getVariableFromGlobalModule(name);
+          _getTraceVariableFromGlobalModule(name);
     }
 
     if (_variableIndices[name] case var index?) {
       _lastVariableName = name;
       _lastVariableIndex = index;
-      return _variables[index][name] ?? _getVariableFromGlobalModule(name);
+      return _variables[index][name] ?? _getTraceVariableFromGlobalModule(name);
     } else if (_variableIndex(name) case var index?) {
       _lastVariableName = name;
       _lastVariableIndex = index;
       _variableIndices[name] = index;
-      return _variables[index][name] ?? _getVariableFromGlobalModule(name);
+      return _variables[index][name] ?? _getTraceVariableFromGlobalModule(name);
     } else {
       // There isn't a real variable defined as this index, but it will cause
       // [getVariable] to short-circuit and get to this function faster next
       // time the variable is accessed.
-      return _getVariableFromGlobalModule(name);
+      _getTraceVariableFromGlobalModule(name);
     }
+    return null;
   }
 
   /// Returns the value of the variable named [name] from a namespaceless
@@ -444,6 +496,12 @@ final class Environment {
   /// module.
   Value? _getVariableFromGlobalModule(String name) =>
       _fromOneModule(name, "variable", (module) => module.variables[name]);
+
+  TraceVariableImpl? _getTraceVariableFromGlobalModule(String name) {
+    var variable = _getVariableFromGlobalModule(name);
+    if (variable != null) return TraceVariableImpl(name, variable);
+    return null;
+  }
 
   /// Returns the node for the variable named [name], or `null` if no such
   /// variable is declared.
@@ -495,7 +553,7 @@ final class Environment {
   }
 
   /// Returns whether a variable named [name] exists.
-  bool variableExists(String name) => getVariable(name) != null;
+  bool variableExists(String name) => _getVariable(name) != null;
 
   /// Returns whether a global variable named [name] exists.
   ///
@@ -537,7 +595,10 @@ final class Environment {
   /// defined in module with the given namespace, or if no [namespace] is passed
   /// and multiple global modules define variables named [name].
   void setVariable(String name, Value value, AstNode nodeWithSpan,
-      {String? namespace, bool global = false}) {
+      {String? namespace,
+      bool global = false,
+      Value Function(TraceVariable variable)? deferrer,
+      Set<TraceVariable>? dependencies}) {
     if (namespace != null) {
       _getModule(namespace).setVariable(name, value, nodeWithSpan);
       return;
@@ -563,7 +624,11 @@ final class Environment {
         }
       }
 
-      _variables.first[name] = value;
+      _variables.first[name] = TraceVariableImpl(name, value,
+          nodeWithSpan: nodeWithSpan,
+          dependencies: dependencies,
+          deferrer: deferrer,
+          isRoot: true);
       _variableNodes.first[name] = nodeWithSpan;
       return;
     }
@@ -593,7 +658,8 @@ final class Environment {
 
     _lastVariableName = name;
     _lastVariableIndex = index;
-    _variables[index][name] = value;
+    _variables[index][name] = TraceVariableImpl(name, value,
+        nodeWithSpan: nodeWithSpan, isRoot: index == 0, deferrer: deferrer);
     _variableNodes[index][name] = nodeWithSpan;
   }
 
@@ -606,12 +672,23 @@ final class Environment {
   /// This takes an [AstNode] rather than a [FileSpan] so it can avoid calling
   /// [AstNode.span] if the span isn't required, since some nodes need to do
   /// real work to manufacture a source span.
-  void setLocalVariable(String name, Value value, AstNode nodeWithSpan) {
+  void setLocalVariable(
+    String name,
+    Value value,
+    AstNode nodeWithSpan, {
+    Set<TraceVariable>? dependencies,
+    bool isArgument = false,
+    Value Function(TraceVariable variable)? deferrer,
+  }) {
     var index = _variables.length - 1;
     _lastVariableName = name;
     _lastVariableIndex = index;
     _variableIndices[name] = index;
-    _variables[index][name] = value;
+    _variables[index][name] = TraceVariableImpl(name, value,
+        nodeWithSpan: nodeWithSpan,
+        dependencies: dependencies,
+        isArgument: isArgument,
+        deferrer: deferrer);
     _variableNodes[index][name] = nodeWithSpan;
   }
 
@@ -787,10 +864,11 @@ final class Environment {
     for (var i = 0; i < _variables.length; i++) {
       var values = _variables[i];
       var nodes = _variableNodes[i];
-      for (var (name, value) in values.pairs) {
+      for (var (name, variable) in values.pairs) {
         // Implicit configurations are never invalid, making [configurationSpan]
         // unnecessary, so we pass null here to avoid having to compute it.
-        configuration[name] = ConfiguredValue.implicit(value, nodes[name]!);
+        configuration[name] =
+            ConfiguredValue.implicit(variable.value, nodes[name]!);
       }
     }
     return Configuration.implicit(configuration);
@@ -899,6 +977,8 @@ final class _EnvironmentModule implements Module<Callable> {
   /// The environment that defines this module's members.
   final Environment _environment;
 
+  Set<TraceVariableImpl> get traceVariables => _environment.traceVariables;
+
   /// A map from variable names to the modules in which those variables appear,
   /// used to determine where variables should be set.
   ///
@@ -923,7 +1003,9 @@ final class _EnvironmentModule implements Module<Callable> {
         }),
         extensionStore,
         _makeModulesByVariable(forwarded),
-        _memberMap(environment._variables.first,
+        _memberMap(
+            environment._variables.first
+                .map((key, variable) => MapEntry(key, variable.value)),
             forwarded.map((module) => module.variables)),
         _memberMap(environment._variableNodes.first,
             forwarded.map((module) => module.variableNodes)),
@@ -1002,7 +1084,8 @@ final class _EnvironmentModule implements Module<Callable> {
       throw SassScriptException("Undefined variable.");
     }
 
-    _environment._variables.first[name] = value;
+    _environment._variables.first[name] =
+        TraceVariableImpl(name, value, nodeWithSpan: nodeWithSpan);
     _environment._variableNodes.first[name] = nodeWithSpan;
     return;
   }

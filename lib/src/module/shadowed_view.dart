@@ -8,6 +8,7 @@ import '../callable.dart';
 import '../exception.dart';
 import '../extend/extension_store.dart';
 import '../module.dart';
+import '../trace_variable.dart';
 import '../util/limited_map_view.dart';
 import '../utils.dart';
 import '../value.dart';
@@ -27,6 +28,7 @@ final class ShadowedModuleView<T extends AsyncCallable> implements Module<T> {
   bool get transitivelyContainsCss => _inner.transitivelyContainsCss;
   bool get transitivelyContainsExtensions =>
       _inner.transitivelyContainsExtensions;
+  Set<TraceVariable> get traceVariables => {};
 
   final Map<String, Value> variables;
   final Map<String, AstNode> variableNodes;

@@ -225,6 +225,7 @@ abstract class StylesheetParser extends Parser {
 
     var guarded = false;
     var global = false;
+    var lazy = false;
     var flagStart = scanner.state;
     while (scanner.scanChar($exclamation)) {
       switch (identifier()) {
@@ -251,6 +252,9 @@ abstract class StylesheetParser extends Parser {
           }
           global = true;
 
+        case 'lazy':
+          lazy = true;
+
         case _:
           error("Invalid flag name.", scanner.spanFrom(flagStart));
       }
@@ -264,6 +268,7 @@ abstract class StylesheetParser extends Parser {
         namespace: namespace,
         guarded: guarded,
         global: global,
+        lazy: lazy,
         comment: precedingComment);
     if (global) _globalVariables.putIfAbsent(name, () => declaration);
     return declaration;

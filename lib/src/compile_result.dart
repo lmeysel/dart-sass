@@ -5,6 +5,7 @@
 import 'package:meta/meta.dart';
 import 'package:source_maps/source_maps.dart';
 
+import 'variable_trace_graph.dart';
 import 'visitor/async_evaluate.dart';
 import 'visitor/serialize.dart';
 
@@ -20,6 +21,8 @@ class CompileResult {
   /// The result of serializing the CSS AST to CSS text.
   final SerializeResult _serialize;
 
+  final VariableTraceGraph variableTraceGraph;
+
   /// The compiled CSS.
   String get css => _serialize.$1;
 
@@ -33,5 +36,6 @@ class CompileResult {
 
   /// @nodoc
   @internal
-  CompileResult(this._evaluate, this._serialize);
+  CompileResult(this._evaluate, this._serialize)
+      : variableTraceGraph = VariableTraceGraph(_evaluate.variables);
 }

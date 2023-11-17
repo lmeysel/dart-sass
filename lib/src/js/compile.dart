@@ -2,9 +2,13 @@
 // MIT-style license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
 
+// ignore_for_file: unused_import
+
 import 'package:cli_pkg/js.dart';
 import 'package:node_interop/js.dart';
 import 'package:node_interop/util.dart' hide futureToPromise;
+import 'package:sass/src/js/array.dart';
+import 'package:sass/src/variable_trace_graph.dart';
 import 'package:term_glyph/term_glyph.dart' as glyph;
 
 import '../../sass.dart';
@@ -15,11 +19,13 @@ import '../importer/js_to_dart/file.dart';
 import '../importer/js_to_dart/sync.dart';
 import '../io.dart';
 import '../logger/js_to_dart.dart';
+import '../trace_variable.dart';
 import '../util/nullable.dart';
 import 'compile_options.dart';
 import 'compile_result.dart';
 import 'exception.dart';
 import 'importer.dart';
+import 'variable_trace.dart';
 import 'utils.dart';
 
 /// The JS API `compile` function.
@@ -155,11 +161,18 @@ NodeCompileResult _convertResult(CompileResult result,
   }
 
   var loadedUrls = toJSArray(result.loadedUrls.map(dartToJSUrl));
+  var variablesTrace = makeJSVariableTraceGraph(result.variableTraceGraph);
   return sourceMap == null
       // The JS API tests expects *no* source map here, not a null source map.
-      ? NodeCompileResult(css: result.css, loadedUrls: loadedUrls)
+      ? NodeCompileResult(
+          css: result.css,
+          loadedUrls: loadedUrls,
+          variablesTrace: variablesTrace)
       : NodeCompileResult(
-          css: result.css, loadedUrls: loadedUrls, sourceMap: jsify(sourceMap));
+          css: result.css,
+          loadedUrls: loadedUrls,
+          sourceMap: jsify(sourceMap),
+          variablesTrace: variablesTrace);
 }
 
 /// Catches `SassException`s thrown by [promise] and rethrows them as JS API
