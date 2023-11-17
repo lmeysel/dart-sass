@@ -29,6 +29,7 @@ import 'exception.dart';
 import 'importer.dart';
 import 'variable_trace.dart';
 import 'reflection.dart';
+import 'variable_trace.dart';
 import 'utils.dart';
 
 /// The JS API `compile` function.
