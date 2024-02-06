@@ -339,9 +339,10 @@ final class _EvaluateVisitor
       Logger? logger,
       bool quietDeps = false,
       bool sourceMap = false})
-      : _importCache = nodeImporter == null
-            ? importCache ?? AsyncImportCache.none(logger: logger)
-            : null,
+      : _importCache = importCache ??
+            (nodeImporter == null
+                ? AsyncImportCache.none(logger: logger)
+                : null),
         _nodeImporter = nodeImporter,
         _logger = logger ?? const Logger.stderr(),
         _quietDeps = quietDeps,
@@ -1714,7 +1715,9 @@ final class _EvaluateVisitor
             return (stylesheet, importer: importer, isDependency: isDependency);
           }
         }
-      } else {
+      }
+
+      if (_nodeImporter != null) {
         if (await _importLikeNode(
                 url, baseUrl ?? _stylesheet.span.sourceUrl, forImport)
             case var result?) {

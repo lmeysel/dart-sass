@@ -69,7 +69,7 @@ Future<(int, String, String?)?> compileStylesheet(ExecutableOptions options,
 Future<void> _compileStylesheetWithoutErrorHandling(ExecutableOptions options,
     StylesheetGraph graph, String? source, String? destination,
     {bool ifModified = false}) async {
-  var importer = FilesystemImporter('.');
+  var importer = FilesystemImporter.cwd;
   if (ifModified) {
     try {
       if (source != null &&
@@ -103,7 +103,7 @@ Future<void> _compileStylesheetWithoutErrorHandling(ExecutableOptions options,
               syntax: syntax,
               logger: options.logger,
               importCache: importCache,
-              importer: FilesystemImporter('.'),
+              importer: FilesystemImporter.cwd,
               style: options.style,
               quietDeps: options.quietDeps,
               verbose: options.verbose,
@@ -128,7 +128,7 @@ Future<void> _compileStylesheetWithoutErrorHandling(ExecutableOptions options,
               syntax: syntax,
               logger: options.logger,
               importCache: graph.importCache,
-              importer: FilesystemImporter('.'),
+              importer: FilesystemImporter.cwd,
               style: options.style,
               quietDeps: options.quietDeps,
               verbose: options.verbose,
